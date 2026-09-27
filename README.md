@@ -2,6 +2,10 @@
 
 Lightweight traffic flow monitoring for OpenWrt using conntrack DESTROY events.
 
+Attributes network traffic to remote Autonomous Systems (ASNs) — answers
+"where is my bandwidth going?" without a full NetFlow/IPFIX exporter or
+flow collector stack.
+
 ## What it does
 
 Captures per-flow byte counts from the kernel conntrack table (via
@@ -74,3 +78,13 @@ The GeoLite2-ASN database requires a free MaxMind license key:
 
 Without the MMDB file, the system works but reports "unknown" for all
 ASN lookups.
+
+---
+
+## Keywords
+
+netflow, ipfix, flow monitoring, traffic analysis, traffic accounting,
+bandwidth monitoring, asn, autonomous system number, bgp, ip-to-asn,
+conntrack, nf_conntrack, netfilter, openwrt, router traffic, who is using my bandwidth,
+per-asn traffic, network visibility, flow export, geoip, maxmind, geolite2,
+ipv6, prefix delegation, traffic by asn, internet traffic breakdown
