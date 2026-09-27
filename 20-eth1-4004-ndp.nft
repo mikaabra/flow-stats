@@ -1,0 +1,7 @@
+# Allow NDP on eth1.4004 (ISP tags all NDP with VLAN 4004)
+# eth1.4004 is not part of any OpenWrt firewall zone, so without this
+# rule the default drop policy blocks the ISP NS and our NA response.
+chain input {
+    type filter hook input priority filter; policy drop;
+    iifname "eth1.4004" icmpv6 type { nd-router-solicit, nd-router-advert, nd-neighbor-solicit, nd-neighbor-advert } accept
+}

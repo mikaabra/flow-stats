@@ -1,0 +1,15 @@
+# Per-protocol traffic counters on eth1 (WAN)
+# Separate chain at priority -1 (before fw4 forward) to count
+# without interfering with existing rules.
+counter ipv4_wan_tx { }
+counter ipv4_wan_rx { }
+counter ipv6_wan_tx { }
+counter ipv6_wan_rx { }
+
+chain wan_proto_counter {
+    type filter hook forward priority -1; policy accept;
+    oifname "eth1" meta nfproto ipv4 counter name ipv4_wan_tx
+    iifname "eth1" meta nfproto ipv4 counter name ipv4_wan_rx
+    oifname "eth1" meta nfproto ipv6 counter name ipv6_wan_tx
+    iifname "eth1" meta nfproto ipv6 counter name ipv6_wan_rx
+}
