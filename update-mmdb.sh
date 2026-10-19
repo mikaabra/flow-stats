@@ -28,13 +28,26 @@ if [ ! -f "$KEYFILE" ]; then
     exit 1
 fi
 
-KEY=$(cat "$KEYFILE" | tr -d '[:space:]')
+# Trim whitespace at line ends ONLY. MaxMind license keys use a grouped
+# format with internal spaces; tr -d '[:space:]' (or similar whole-string
+# whitespace removal) mangles the key and the download fails with 401.
+KEY=$(head -n1 "$KEYFILE" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
 
 cd "$TMPDIR" || exit 1
 
 echo "Downloading GeoLite2-ASN database..."
-wget -q -T 30 -O geolite2-asn.tar.gz \
-    "https://download.maxmind.com/app/geoip_download?edition_id=GeoLite2-ASN&license_key=${KEY}&suffix=tar.gz"
+# Fetch via python3 urllib rather than busybox wget: it URL-encodes the
+# key (which contains spaces), follows MaxMind's redirect to R2 presigned
+# URLs, and truncates error text before it can echo the license key into
+# logs. Exit status propagates to the $? check below.
+MMKEY="$KEY" python3 -c 'import os, sys, urllib.request
+import urllib.parse
+url = "https://download.maxmind.com/app/geoip_download?edition_id=GeoLite2-ASN&license_key=" + urllib.parse.quote(os.environ["MMKEY"]) + "&suffix=tar.gz"
+try:
+    urllib.request.urlretrieve(url, sys.argv[1])
+except Exception as e:
+    print("download error:", type(e).__name__, str(e).split("license_key")[0][:150])
+    sys.exit(1)' geolite2-asn.tar.gz
 
 if [ $? -ne 0 ]; then
     echo "Error: Download failed"
