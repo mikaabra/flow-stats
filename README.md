@@ -20,8 +20,10 @@ local MaxMind GeoLite2-ASN MMDB database, and collapses by ASN.
   DESTROY events directly (no awk, no FIFO), parses each flow, and
   inserts into a SQLite database (`/mnt/data/flowstats.db`) with WAL
   mode. Dynamically detects WAN IP and IPv6 PD prefixes every 5
-  minutes. Aggregates raw flows into long-term `flow_agg` buckets
-  every 5 minutes; raw flows are retained 24 hours (hourly cleanup).
+  minutes. The `flows` table is a short-lived buffer only: every 5
+  minutes its rows older than 60 s are folded into long-term `flow_agg`
+  5-minute buckets and deleted. `flow_agg` is what the report reads and
+  is retained 24 hours (hourly cleanup).
 
 - **Report** (`flow-report.py`): Queries SQLite for flows in the last
   N hours, groups by /24 or /48, looks up ASN using the MaxMind MMDB
@@ -40,6 +42,9 @@ local MaxMind GeoLite2-ASN MMDB database, and collapses by ASN.
 | `flow-logger.init` | `/etc/init.d/flow-logger` | procd init script (respawn, nice 19) |
 | `update-mmdb.sh` | `/usr/local/bin/update-mmdb.sh` | MMDB database download/update |
 | `wan-stats.sh` | `/usr/local/bin/wan-stats.sh` | WAN IPv4 vs IPv6 traffic summary (forwarded) |
+| `99-wan-neighbor` | `/etc/hotplug.d/iface/99-wan-neighbor` | ISP NDP workaround: eth1.4004 + static neighbor (see below) |
+| `20-eth1-4004-ndp.nft` | `/etc/nftables.d/20-eth1-4004-ndp.nft` | Allow tagged NDP on eth1.4004 |
+| `30-wan-protocol-counters.nft` | `/etc/nftables.d/30-wan-protocol-counters.nft` | WAN byte counters by protocol |
 
 ## Usage
 
@@ -69,6 +74,33 @@ update-mmdb.sh
 - MaxMind GeoLite2-ASN MMDB at `/mnt/data/GeoLite2-ASN.mmdb`
   (system works without it -- reports "unknown" for ASN)
 - Kernel conntrack accounting enabled (`nf_conntrack_acct=1`)
+- **Software flow offloading must stay DISABLED**
+  (`firewall.@defaults[0].flow_offloading='0'`). Offloaded connections
+  do not emit conntrack DESTROY events until teardown or an external
+  conntrack flush — bulk flows (video streaming, large downloads)
+  silently vanish from the stats, sometimes for days. Verified
+  empirically on OpenWrt 25.12: with offloading enabled, a 50 MB
+  download produced no DESTROY after many minutes; flushed conntrack
+  showed the same flow with full byte counters. On x86 the CPU cost of
+  offload-free forwarding is negligible.
+
+## ISP NDP workaround (Bahnhof VLAN 4004)
+
+Bahnhof delivers all NDP traffic tagged with VLAN 4004; everything else
+arrives untagged. Two runtime objects are required for working IPv6:
+
+- on **wan6 ifup**, `/etc/hotplug.d/iface/99-wan-neighbor` creates the
+  `eth1.4004` VLAN interface (so the kernel accepts tagged NAs/NSs) and
+  pins a **static permanent neighbor entry** for the ISP gateway on the
+  untagged path (its announced link-local + observed MAC — do not
+  derive the MAC via EUI-64 from the link-local, it does not match).
+- `/etc/nftables.d/20-eth1-4004-ndp.nft` allows the NDP packet types
+  on `eth1.4004`, which belongs to no firewall zone.
+
+A sysupgrade wipes `/etc/hotplug.d`-custom and possibly
+`/etc/nftables.d` files unless keep-listed in `/etc/sysupgrade.conf` —
+symptom of a lost workaround: IPv6 dead on arrival, zero-byte v6 rows
+in the stats, and `ip -6 neigh` showing only incomplete entries.
 
 ## MMDB Setup
 
