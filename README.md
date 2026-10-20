@@ -42,9 +42,10 @@ local MaxMind GeoLite2-ASN MMDB database, and collapses by ASN.
 | `flow-logger.init` | `/etc/init.d/flow-logger` | procd init script (respawn, nice 19) |
 | `update-mmdb.sh` | `/usr/local/bin/update-mmdb.sh` | MMDB database download/update |
 | `wan-stats.sh` | `/usr/local/bin/wan-stats.sh` | WAN IPv4 vs IPv6 traffic summary (forwarded) |
-| `99-wan-neighbor` | `/etc/hotplug.d/iface/99-wan-neighbor` | ISP NDP workaround: eth1.4004 + static neighbor (see below) |
-| `20-eth1-4004-ndp.nft` | `/etc/nftables.d/20-eth1-4004-ndp.nft` | Allow tagged NDP on eth1.4004 |
-| `30-wan-protocol-counters.nft` | `/etc/nftables.d/30-wan-protocol-counters.nft` | WAN byte counters by protocol |
+
+Files in [`site-specific/`](site-specific/) (author's ISP/VM setup —
+VLAN 4004 NDP workaround, WAN counters) are excluded from this table
+intentionally; most setups won't need them.
 
 ## Usage
 
@@ -84,23 +85,6 @@ update-mmdb.sh
   showed the same flow with full byte counters. On x86 the CPU cost of
   offload-free forwarding is negligible.
 
-## ISP NDP workaround (Bahnhof VLAN 4004)
-
-Bahnhof delivers all NDP traffic tagged with VLAN 4004; everything else
-arrives untagged. Two runtime objects are required for working IPv6:
-
-- on **wan6 ifup**, `/etc/hotplug.d/iface/99-wan-neighbor` creates the
-  `eth1.4004` VLAN interface (so the kernel accepts tagged NAs/NSs) and
-  pins a **static permanent neighbor entry** for the ISP gateway on the
-  untagged path (its announced link-local + observed MAC — do not
-  derive the MAC via EUI-64 from the link-local, it does not match).
-- `/etc/nftables.d/20-eth1-4004-ndp.nft` allows the NDP packet types
-  on `eth1.4004`, which belongs to no firewall zone.
-
-A sysupgrade wipes `/etc/hotplug.d`-custom and possibly
-`/etc/nftables.d` files unless keep-listed in `/etc/sysupgrade.conf` —
-symptom of a lost workaround: IPv6 dead on arrival, zero-byte v6 rows
-in the stats, and `ip -6 neigh` showing only incomplete entries.
 
 ## MMDB Setup
 
