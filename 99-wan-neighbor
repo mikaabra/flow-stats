@@ -1,0 +1,12 @@
+#!/bin/sh
+# Bahnhof tags ALL NDP with VLAN 4004 (other IPv6 traffic arrives untagged).
+# See openwrt-migration/12-session-status.md: without eth1.4004 the kernel
+# drops the tagged NAs, so neighbor resolution on eth1 never completes and
+# IPv6 dies; only these two runtime objects fix it after any reboot.
+[ "$ACTION" = "ifup" ] || exit 0
+[ "$INTERFACE" = "wan6" ] || exit 0
+
+ip link add eth1.4004 link eth1 type vlan id 4004 2>/dev/null
+ip link set eth1.4004 up
+ip -6 neigh replace fe80::5ad0:61ff:fe11:d2f7 lladdr 58:d0:61:11:d2:f7 dev eth1 nud permanent
+logger -t wan-neighbor "eth1.4004 up, static NDP pinned for ISP gw (VLAN4004 workaround)"
