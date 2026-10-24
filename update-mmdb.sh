@@ -6,6 +6,7 @@
 # Save your key to /etc/maxmind-license.key
 
 KEYFILE=/etc/maxmind-license.key
+ACCOUNTFILE=/etc/maxmind-account.id
 MMDB=/mnt/data/GeoLite2-ASN.mmdb
 MMDB_LINK=/etc/GeoLite2-ASN.mmdb
 TMPDIR=$(mktemp -d /tmp/mmdb-download.XXXXXX) || exit 1
@@ -33,20 +34,67 @@ fi
 # whitespace removal) mangles the key and the download fails with 401.
 KEY=$(head -n1 "$KEYFILE" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
 
+if [ -n "$MAXMIND_ACCOUNT_ID" ]; then
+    ACC="$MAXMIND_ACCOUNT_ID"
+elif [ -f "$ACCOUNTFILE" ]; then
+    ACC=$(head -n1 "$ACCOUNTFILE" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+    if [ -z "$ACC" ]; then
+        echo "Error: $ACCOUNTFILE exists but is empty"
+        exit 1
+    fi
+else
+    echo "Error: MaxMind Account ID not found."
+    echo "Save the numeric Account ID (from your MaxMind account portal):"
+    echo "  echo YOUR_ACCOUNT_ID > $ACCOUNTFILE"
+    echo "  chmod 600 $ACCOUNTFILE"
+    echo "or export MAXMIND_ACCOUNT_ID"
+    exit 1
+fi
+
 cd "$TMPDIR" || exit 1
 
 echo "Downloading GeoLite2-ASN database..."
-# Fetch via python3 urllib rather than busybox wget: it URL-encodes the
-# key (which contains spaces), follows MaxMind's redirect to R2 presigned
-# URLs, and truncates error text before it can echo the license key into
-# logs. Exit status propagates to the $? check below.
-MMKEY="$KEY" python3 -c 'import os, sys, urllib.request
-import urllib.parse
-url = "https://download.maxmind.com/app/geoip_download?edition_id=GeoLite2-ASN&license_key=" + urllib.parse.quote(os.environ["MMKEY"]) + "&suffix=tar.gz"
+# New MaxMind download API (migrated 2026-10-24; legacy /app/geoip_download
+# endpoint retired from use): https://download.maxmind.com/geoip/databases/
+# <Edition>/download?suffix=tar.gz with Basic auth account_id:license_key.
+# GOTCHA: the endpoint 302-redirects to an R2 presigned URL which must be
+# fetched WITHOUT the Authorization header — Python urllib forwards auth
+# headers across redirects (curl -L does not), and R2 rejects any request
+# bearing a non-SigV4 Authorization header with "Missing
+# x-amz-content-sha256". Hence the manual two-hop dance below: block the
+# redirect, capture Location, fetch it credential-free. Error text stays
+# key-free. Exit status propagates to the $? check below.
+# Account ID: numeric, from the MaxMind account portal (GeoIP.conf); read
+# from $MAXMIND_ACCOUNT_ID or $ACCOUNTFILE. The license key lives only in
+# $KEYFILE (0600).
+MMACC="$ACC" MMKEY="$KEY" python3 -c 'import os, sys, base64
+import urllib.request, urllib.error
+auth = base64.b64encode((os.environ["MMACC"] + ":" + os.environ["MMKEY"]).encode()).decode()
+url = "https://download.maxmind.com/geoip/databases/GeoLite2-ASN/download?suffix=tar.gz"
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *a, **k):
+        return None
+opener = urllib.request.build_opener(NoRedirect)
+req = urllib.request.Request(url, headers={"Authorization": "Basic " + auth})
+presigned = None
 try:
-    urllib.request.urlretrieve(url, sys.argv[1])
+    resp = opener.open(req, timeout=30)
+except urllib.error.HTTPError as e:
+    if e.code in (301, 302, 303, 307, 308):
+        presigned = e.headers.get("Location")
+        e.close()
+    else:
+        print("download error:", type(e).__name__, e.code, str(e)[:120])
+        sys.exit(1)
+try:
+    src = urllib.request.urlopen(presigned, timeout=120) if presigned else resp
+    with open(sys.argv[1], "wb") as f:
+        while True:
+            chunk = src.read(65536)
+            if not chunk: break
+            f.write(chunk)
 except Exception as e:
-    print("download error:", type(e).__name__, str(e).split("license_key")[0][:150])
+    print("download error:", type(e).__name__, str(e)[:120])
     sys.exit(1)' geolite2-asn.tar.gz
 
 if [ $? -ne 0 ]; then
