@@ -88,13 +88,23 @@ update-mmdb.sh
 
 ## MMDB Setup
 
-The GeoLite2-ASN database requires a free MaxMind license key:
+The GeoLite2-ASN database requires a free MaxMind license key and your
+numeric Account ID:
 
 1. Sign up at https://www.maxmind.com/en/geolite2/signup
 2. Save your key: `echo 'YOUR_KEY' > /etc/maxmind-license.key && chmod 600 /etc/maxmind-license.key`
-3. Run: `update-mmdb.sh`
+3. Save your Account ID: `echo YOUR_ACCOUNT_ID > /etc/maxmind-account.id && chmod 600 /etc/maxmind-account.id`
+4. Run: `update-mmdb.sh`
 
-**Key format caveat**: current MaxMind license keys use a grouped format
+Downloads use MaxMind's current download API
+(`https://download.maxmind.com/geoip/databases/GeoLite2-ASN/download`,
+HTTP Basic auth `account_id:license_key`). The endpoint 302-redirects
+to a Cloudflare R2 presigned URL which must be fetched WITHOUT the
+Authorization header — Python's urllib forwards auth headers across
+redirects (curl -L strips them) and R2 rejects such requests, so the
+script blocks the redirect and fetches the presigned URL credential-free.
+
+**Key format caveat**: MaxMind license keys may use a grouped format
 with internal spaces. Preserve them exactly as pasted — only trim
 whitespace at the line ends. Whole-string whitespace removal (e.g.
 `tr -d '[:space:]'`) mangles the key and every download fails with 401
